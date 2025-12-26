@@ -71,6 +71,11 @@ Esto generará un instalador nativo (.exe, .dmg, .AppImage) que incluye FFmpeg e
 cargo tauri build
 ```
 
+> ⚠️ **Nota sobre Windows SmartScreen:**
+> Como Open Pulse es un proyecto open source y no cuenta con un certificado de firma de código (que tiene un costo elevado para desarrolladores individuales), Windows podría mostrar una advertencia de seguridad al intentar instalarlo.
+>
+> Esto es normal. Para continuar, simplemente haz clic en **"Más información"** > **"Ejecutar de todas formas"**. El código es 100% seguro y auditable en este repositorio.
+
 ---
 👨‍💻 Autor
 Desarrollado por suaresteban97.

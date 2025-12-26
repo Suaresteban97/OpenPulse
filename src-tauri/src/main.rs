@@ -11,8 +11,6 @@ struct ConversionState {
     current_process: Arc<Mutex<Option<CommandChild>>>,
 }
 
-#[cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
-
 #[tauri::command]
 async fn select_file(app: tauri::AppHandle, file_type: String) -> Result<String, String> {
     let mut dialog_builder = app.dialog().file();

@@ -37,6 +37,14 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libssl-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev
 
+      - name: Combine FFmpeg binaries (macOS only)
+        if: matrix.platform == 'macos-latest'
+        run: |
+          # Fusionamos el binario de Intel y el de ARM para crear el Universal
+          lipo -create src-tauri/binaries/ffmpeg-x86_64-apple-darwin src-tauri/binaries/ffmpeg-aarch64-apple-darwin -output src-tauri/binaries/ffmpeg-universal-apple-darwin
+          # Le damos permisos de ejecución
+          chmod +x src-tauri/binaries/ffmpeg-universal-apple-darwin
+
       - name: Build the app
         uses: tauri-apps/tauri-action@v0
         env:
