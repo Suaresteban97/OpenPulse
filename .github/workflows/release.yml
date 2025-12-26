@@ -35,19 +35,14 @@ jobs:
         if: matrix.platform == 'ubuntu-22.04'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.0-dev build-essential curl wget file libssl-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev
-
-      # AQUÍ ESTÁ EL TRUCO: Como usamos Sidecar, GitHub necesita los binarios.
-      # Opción A: Los subiste al repo (lo más fácil ahora).
-      # Opción B: Hacemos que GitHub los descargue (más pro, pero requiere script).
-      # Asumiremos que los binaries/ffmpeg-* están en tu repo gracias a que NO los pusiste en .gitignore.
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libssl-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev
 
       - name: Build the app
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: v__VERSION__ # Toma la versión de tu tauri.conf.json
+          tagName: v__VERSION__ 
           releaseName: 'Open Pulse v__VERSION__'
           releaseBody: 'See the assets to download this version and install.'
           releaseDraft: true
