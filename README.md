@@ -78,6 +78,7 @@ cargo tauri build
 
 ---
 👨‍💻 Autor
+
 Desarrollado por suaresteban97.
 
 Hecho con ❤️ y 🦀 Rust.

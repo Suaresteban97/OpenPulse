@@ -1,3 +1,5 @@
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 use tauri::{State};
 use tauri_plugin_shell::{ShellExt, process::CommandChild};
 use tauri_plugin_dialog::DialogExt;
@@ -129,7 +131,6 @@ async fn convert_file(
     Ok("Finalizado".to_string())
 }
 
-#[cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 fn main() {
     tauri::Builder::default()
         .manage(ConversionState {
