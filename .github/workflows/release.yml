@@ -1,0 +1,55 @@
+name: Release Creation
+
+permissions:
+  contents: write
+
+on:
+  push:
+    tags:
+      - 'v*' # Se activa cuando subes un tag como v0.1.0
+
+jobs:
+  build-and-release:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: 'macos-latest' # Apple Silicon & Intel (Universal si se configura)
+            args: '--target universal-apple-darwin'
+          - platform: 'ubuntu-22.04' # Linux
+            args: ''
+          - platform: 'windows-latest' # Windows
+            args: ''
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - name: Install dependencies (Linux only)
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.0-dev build-essential curl wget file libssl-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev
+
+      # AQUÍ ESTÁ EL TRUCO: Como usamos Sidecar, GitHub necesita los binarios.
+      # Opción A: Los subiste al repo (lo más fácil ahora).
+      # Opción B: Hacemos que GitHub los descargue (más pro, pero requiere script).
+      # Asumiremos que los binaries/ffmpeg-* están en tu repo gracias a que NO los pusiste en .gitignore.
+
+      - name: Build the app
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: v__VERSION__ # Toma la versión de tu tauri.conf.json
+          releaseName: 'Open Pulse v__VERSION__'
+          releaseBody: 'See the assets to download this version and install.'
+          releaseDraft: true
+          prerelease: false
+          args: ${{ matrix.args }}
