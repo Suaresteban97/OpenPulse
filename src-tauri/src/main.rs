@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use tauri::{State};
+use sysinfo::System;
+use tauri::{AppHandle, State};
 use tauri_plugin_shell::{ShellExt, process::CommandChild};
 use tauri_plugin_dialog::DialogExt;
 use tauri::Emitter;
@@ -29,6 +30,31 @@ async fn select_file(app: tauri::AppHandle, file_type: String) -> Result<String,
         Some(path) => Ok(path.to_string()),
         None => Err("Cancelado".to_string()),
     }
+}
+
+fn calculate_smart_threads() -> String {
+    let mut sys = System::new_all();
+    sys.refresh_all(); 
+
+    let free_ram_gb = sys.available_memory() / 1024 / 1024 / 1024; 
+    let global_cpu_usage = sys.global_cpu_info().cpu_usage(); 
+    let logical_cores = sys.cpus().len();
+
+    println!("Diagnóstico: RAM Libre: {}GB | CPU Uso: {}% | Cores: {}", free_ram_gb, global_cpu_usage, logical_cores);
+
+    if free_ram_gb < 2 || global_cpu_usage > 60.0 {
+        println!("⚠️ Sistema ocupado. Modo Sigiloso (1 hilo).");
+        return "1".to_string();
+    }
+    
+    let threads_to_use = if logical_cores > 1 {
+        logical_cores / 2
+    } else {
+        1
+    };
+
+    println!("✅ Modo Equilibrado activo ({} hilos de {}).", threads_to_use, logical_cores);
+    threads_to_use.to_string()
 }
 
 fn generate_unique_path(base_path: PathBuf) -> PathBuf {
@@ -65,12 +91,13 @@ async fn cancel_conversion(state: State<'_, ConversionState>) -> Result<String, 
 
 #[tauri::command]
 async fn convert_file(
-    app: tauri::AppHandle, 
-    state: State<'_, ConversionState>,
+    app: AppHandle, 
+    state: State<'_, ConversionState>, 
     input_path: String, 
     format: String
-) -> Result<String, String> {
+)-> Result<String, String> {
     
+    let smart_threads = calculate_smart_threads();
     let path_obj = Path::new(&input_path);
     let file_stem = path_obj.file_stem().unwrap().to_str().unwrap();
     let parent_dir = path_obj.parent().unwrap();
@@ -91,7 +118,10 @@ async fn convert_file(
     let output_path = generate_unique_path(tentative_path);
     let output_str = output_path.to_str().unwrap().to_string();
 
-    let mut args = vec!["-i", &input_path];
+    let mut args = vec![
+        "-i", &input_path,
+        "-threads", &smart_threads,
+    ];
     args.extend_from_slice(&extra_args);
     args.push(&output_str);
 
