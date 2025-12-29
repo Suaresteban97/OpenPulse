@@ -15,7 +15,8 @@ struct ConversionState {
 }
 
 #[tauri::command]
-async fn select_file(app: tauri::AppHandle, file_type: String) -> Result<String, String> {
+async fn select_file(app: tauri::AppHandle, file_type: String) -> Result<Vec<String>, String> {
+
     let mut dialog_builder = app.dialog().file();
 
     if file_type == "video" {
@@ -24,10 +25,13 @@ async fn select_file(app: tauri::AppHandle, file_type: String) -> Result<String,
         dialog_builder = dialog_builder.add_filter("Multimedia", &["mp3", "wav", "m4a", "ogg", "mp4", "mov", "avi"]);
     }
 
-    let file_path = dialog_builder.blocking_pick_file();
+    let file_paths = dialog_builder.blocking_pick_files();
 
-    match file_path {
-        Some(path) => Ok(path.to_string()),
+    match file_paths {
+        Some(paths) => {
+            let string_paths: Vec<String> = paths.into_iter().map(|p| p.to_string()).collect();
+            Ok(string_paths)
+        },
         None => Err("Cancelado".to_string()),
     }
 }

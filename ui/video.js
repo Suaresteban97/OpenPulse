@@ -1,10 +1,13 @@
-﻿// ui/script.js
+﻿// ui/video.js
 
 document.addEventListener('DOMContentLoaded', () => {
     const { invoke } = window.__TAURI__.core;
     const { listen } = window.__TAURI__.event;
 
-    // --- GLOBAL UI & NAVIGATION ---
+    let videoQueue = [];
+    let isProcessing = false;
+    let currentProcessingId = null; 
+
     const introOverlay = document.getElementById('intro-overlay');
     if (introOverlay) { 
         setTimeout(() => { 
@@ -20,168 +23,153 @@ document.addEventListener('DOMContentLoaded', () => {
         item.addEventListener('click', () => {
             menuItems.forEach(i => i.classList.remove('active'));
             sections.forEach(s => s.classList.remove('active-section'));
-            
             item.classList.add('active');
-            const targetId = item.dataset.target;
-            document.getElementById(targetId).classList.add('active-section');
+            document.getElementById(item.dataset.target).classList.add('active-section');
         });
     });
 
-    // --- VIDEO SECTION LOGIC ---
     const dropZone = document.querySelector('#video-section .drop-zone');
-    let selectedVideoPath = "";
-    let isProcessing = false;
+
+    let queueContainer = document.getElementById('queue-container');
+    if (!queueContainer && dropZone) {
+        queueContainer = document.createElement('div');
+        queueContainer.id = 'queue-container';
+        queueContainer.style.marginTop = "20px";
+        queueContainer.innerHTML = `
+            <div id="controls-area" style="display:none; text-align:center; margin-bottom:20px;">
+                 <label style="color:#94a3b8; font-size:0.9rem;">Formato para todos:</label>
+                 <select id="format-selector" style="padding: 8px; border-radius: 5px; background: #1e293b; color: white; border: 1px solid #334155; margin-left:10px;">
+                    <option value="insta">📱 Instagram Reel (9:16)</option>
+                    <option value="whatsapp">💬 WhatsApp (Ligero)</option>
+                    <option value="original">📦 Original (Optimizado)</option>
+                    <option value="gif">🎞️ GIF Animado</option>
+                    <option value="audio">🎵 Solo Audio (MP3)</option>
+                </select>
+                <div style="margin-top:15px;">
+                    <button id="btn-process-queue" style="padding:10px 20px; background:linear-gradient(45deg, #00f2ff, #0078d7); color:white; border:none; border-radius:5px; cursor:pointer; font-weight:bold;">⚡ PROCESAR COLA</button>
+                    <button id="btn-clear-queue" style="padding:10px 20px; background:#ef4444; color:white; border:none; border-radius:5px; cursor:pointer; margin-left:10px;">🗑️ LIMPIAR</button>
+                </div>
+            </div>
+            <ul id="video-list" style="list-style:none; padding:0; width:90%; margin:0 auto;"></ul>
+        `;
+        dropZone.parentNode.insertBefore(queueContainer, dropZone.nextSibling);
+    }
+
+    const btnProcess = document.getElementById('btn-process-queue');
+    const btnClear = document.getElementById('btn-clear-queue');
+    const formatSelector = document.getElementById('format-selector');
+
+    function addFileToQueue(path) {
+        if (videoQueue.includes(path)) return;
+
+        videoQueue.push(path);
+        document.getElementById('controls-area').style.display = 'block';
+
+        const list = document.getElementById('video-list');
+        const li = document.createElement('li');
+        
+        const uniqueId = btoa(encodeURIComponent(path)).replace(/=/g, '');
+        li.id = `item-${uniqueId}`;
+        li.style.cssText = "background: rgba(255,255,255,0.05); margin-bottom: 8px; padding: 10px; border-radius: 6px; display: flex; justify-content: space-between; align-items: center;";
+
+        const fileName = path.split(/[/\\]/).pop();
+
+        li.innerHTML = `
+            <span style="color:white; font-size:0.9rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:60%;" title="${path}">📄 ${fileName}</span>
+            <span class="status-badge" style="color: #fbbf24; font-size:0.8rem; font-weight:bold; min-width: 100px; text-align: right;">⏳ Pendiente</span>
+        `;
+        
+        list.appendChild(li);
+    }
+
+    listen('ffmpeg-progress', (event) => {
+        if (currentProcessingId) {
+            const timeString = event.payload; 
+            const li = document.getElementById(`item-${currentProcessingId}`);
+            if (li) {
+                const badge = li.querySelector('.status-badge');
+                badge.innerText = `⚙️ ${timeString}`;
+                badge.style.color = "#3b82f6";
+            }
+        }
+    });
 
     if (dropZone) {
-        dropZone.addEventListener('click', async (e) => {
-            
-            if (window.playSound) window.playSound('click');
-
-            // Prevent clicks if processing, or if clicking children when file is loaded
-            if (isProcessing || (e.target !== dropZone && !dropZone.contains(e.target)) || selectedVideoPath !== "") {
-                return;
-            }
-
+        dropZone.addEventListener('click', async () => {
+            if (isProcessing) return;
             try {
-                dropZone.innerHTML = "<p>Abriendo selector de video...</p>";
-                
-                // Matches Rust: select_file
-                const path = await invoke('select_file', { fileType: 'video' });
-                selectedVideoPath = path;
-
-                if (window.playSound) window.playSound('click');
-
-                // Update UI to "Loaded" state
-                dropZone.style.borderColor = "#00f2ff";
-                dropZone.style.borderStyle = "solid";
-                
-                // Note: IDs inside template string updated to English
-                dropZone.innerHTML = `
-                    <div id="container-inner" style="text-align:center; width: 100%; cursor: default; position: relative; padding: 20px;">
-                        <div id="btn-remove-file" class="btn-cerrar-archivo" title="Quitar archivo">✕</div>
-                        <p style="color: #00f2ff; margin-bottom:5px; font-weight:bold;">VIDEO CARGADO:</p>
-                        <p style="font-size: 0.8rem; word-break: break-all; opacity: 0.8; margin-bottom: 20px;">${path}</p>
-                        
-                        <div id="controls-format" style="margin-bottom: 20px;">
-                            <label style="display:block; margin-bottom:5px; font-size:0.8rem; color:#94a3b8;">Formato de Salida:</label>
-                            <select id="format-selector" style="padding: 10px; border-radius: 5px; background: #1e293b; color: white; border: 1px solid #334155; width: 250px;">
-                                <option value="insta">📱 Instagram Reel (9:16)</option>
-                                <option value="whatsapp">💬 WhatsApp (Ligero)</option>
-                                <option value="original">📦 Original (Optimizado)</option>
-                                <option value="gif">🎞️ GIF Animado</option>
-                                <option value="audio">🎵 Solo Audio (MP3)</option>
-                            </select>
-                        </div>
-
-                        <div id="progress-wrapper" class="progress-container" style="display:none; margin: 0 auto 20px auto; width: 80%;">
-                            <div id="inner-bar" class="progress-bar" style="width: 0%"></div>
-                        </div>
-
-                        <div id="action-buttons" style="display:flex; gap:10px; justify-content:center;">
-                            <button id="btn-convert" style="padding:12px 24px; background:linear-gradient(45deg, #00f2ff, #0078d7); color:white; border:none; border-radius:5px; cursor:pointer; font-weight:bold;">⚡ CONVERTIR</button>
-                            <button id="btn-cancel" style="display:none; padding:12px 24px; background:#ef4444; color:white; border:none; border-radius:5px; cursor:pointer; font-weight:bold;">🛑 CANCELAR</button>
-                        </div>
-                        <div id="status-message" style="margin-top:15px; font-size:0.8rem; height:20px; color: #94a3b8;"></div>
-                    </div>
-                `;
-
-                // Bind new elements
-                const btnConvert = document.getElementById('btn-convert');
-                const btnCancel = document.getElementById('btn-cancel');
-                const btnRemove = document.getElementById('btn-remove-file');
-                const formatSelector = document.getElementById('format-selector');
-                const statusDiv = document.getElementById('status-message');
-                const progressWrapper = document.getElementById('progress-wrapper');
-                const innerBar = document.getElementById('inner-bar');
-
-                // Stop propagation to prevent re-opening file selector
-                [btnConvert, btnCancel, btnRemove, formatSelector].forEach(el => {
-                    el.addEventListener('click', (ev) => ev.stopPropagation());
-                });
-
-                // RESET ACTION
-                btnRemove.addEventListener('click', () => {
-                    if (window.playSound) window.playSound('click');
-                    selectedVideoPath = "";
-                    dropZone.innerHTML = "<p>Arrastra tu archivo de VIDEO aquí</p>";
-                    dropZone.style.borderColor = "#334155";
-                    dropZone.style.borderStyle = "dashed";
-                });
-
-                // CONVERT ACTION
-                btnConvert.addEventListener('click', async () => {
-                    if (window.playSound) window.playSound('click');
-                    isProcessing = true;
-                    
-                    // UI Updates
-                    btnConvert.style.display = "none";
-                    btnRemove.style.display = "none";
-                    btnCancel.style.display = "inline-block";
-                    progressWrapper.style.display = "block";
-                    innerBar.style.width = "5%";
-                    statusDiv.innerText = "Iniciando motor...";
-
-                    try {
-                        // Matches Rust: convert_file(input_path, format)
-                        // Tauri maps camelCase keys to snake_case args
-                        const result = await invoke('convert_file', {
-                            inputPath: selectedVideoPath,
-                            format: formatSelector.value
-                        });
-
-                        if (window.playSound) window.playSound('success');
-
-                        btnConvert.classList.add('success-pulse');
-                        setTimeout(() => btnConvert.classList.remove('success-pulse'), 4500);
-
-                        // Success State
-                        innerBar.style.width = "100%";
-                        statusDiv.innerText = "✅ " + result; // Keeps Spanish message for user
-                        statusDiv.style.color = "#10b981";
-                        btnCancel.style.display = "none";
-                        btnRemove.style.display = "flex";
-                        isProcessing = false;
-
-                    } catch (error) {
-                        if (window.playSound) window.playSound('error');
-                        
-                        if (error.includes("detenido") || error.includes("cancelado")) {
-                            statusDiv.innerText = "⚠️ Proceso cancelado.";
-                        } else {
-                            statusDiv.innerText = "❌ Error: " + error;
-                        }
-                        
-                        progressWrapper.style.display = "none";
-                        btnConvert.style.display = "inline-block";
-                        btnCancel.style.display = "none";
-                        btnRemove.style.display = "flex";
-                        isProcessing = false;
-                    }
-                });
-
-                // CANCEL ACTION
-                btnCancel.addEventListener('click', async () => {
-                    if (window.playSound) window.playSound('click');
-                    // Matches Rust: cancel_conversion
-                    await invoke('cancel_conversion');
-                });
-
-                // LISTEN FOR RUST EVENTS
-                await listen('ffmpeg-progress', (event) => {
-                    const timeString = event.payload; // "00:00:05"
-                    statusDiv.innerText = `⏳ Procesando tiempo: ${timeString}`;
-                    
-                    // Artificial visual increment
-                    let currentWidth = parseFloat(innerBar.style.width);
-                    if (currentWidth < 95) {
-                        innerBar.style.width = (currentWidth + 2) + "%";
-                    }
-                });
-
+                const paths = await invoke('select_file', { fileType: 'video' });
+                if (Array.isArray(paths) && paths.length > 0) {
+                    paths.forEach(path => addFileToQueue(path));
+                }
             } catch (err) {
-                // User cancelled file selection or error
-                dropZone.innerHTML = "<p>Arrastra tu archivo de VIDEO aquí</p>";
+
             }
         });
     }
+
+    if (btnProcess) {
+        btnProcess.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            if (videoQueue.length === 0) return;
+            
+            isProcessing = true;
+            btnProcess.disabled = true;
+            btnProcess.innerText = "Procesando...";
+            btnClear.style.display = 'none';
+
+            const format = formatSelector.value;
+
+            for (const filePath of videoQueue) {
+                
+                const uniqueId = btoa(encodeURIComponent(filePath)).replace(/=/g, '');
+                currentProcessingId = uniqueId; 
+
+                const li = document.getElementById(`item-${uniqueId}`);
+                const statusSpan = li.querySelector('.status-badge');
+
+                statusSpan.innerText = "Iniciando...";
+                statusSpan.style.color = "#3b82f6"; 
+
+                try {
+                    await invoke('convert_file', { inputPath: filePath, format: format });
+
+                    statusSpan.innerText = "✅ Listo";
+                    statusSpan.style.color = "#10b981"; 
+                    
+                } catch (error) {
+                    statusSpan.innerText = "❌ Error";
+                    statusSpan.style.color = "#ef4444"; 
+                    statusSpan.title = error;
+                }
+            }
+
+            currentProcessingId = null;
+            isProcessing = false;
+            btnProcess.disabled = false;
+            btnProcess.innerText = "⚡ PROCESAR COLA";
+            btnClear.style.display = 'inline-block';
+
+            if (window.playSound) window.playSound('success');
+            alert("¡Proceso finalizado! Todos los videos han sido convertidos.");
+        });
+    }
+
+    if (btnClear) {
+        btnClear.addEventListener('click', (e) => {
+            e.stopPropagation();
+            videoQueue = [];
+            document.getElementById('video-list').innerHTML = "";
+            document.getElementById('controls-area').style.display = 'none';
+        });
+    }
+
+    listen('tauri://file-drop', (event) => {
+        const files = event.payload;
+        if (files && files.length > 0) {
+            files.forEach(p => {
+                if (p.match(/\.(mp4|mkv|avi|mov|flv|webm)$/i)) addFileToQueue(p);
+            });
+        }
+    });
 });
