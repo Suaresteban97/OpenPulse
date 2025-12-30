@@ -36,6 +36,24 @@ async fn select_file(app: tauri::AppHandle, file_type: String) -> Result<Vec<Str
     }
 }
 
+#[tauri::command]
+async fn get_media_duration(app: AppHandle, path: String) -> Result<String, String> {
+    let args = vec!["-i", &path];
+    let command = app.shell().sidecar("ffmpeg").map_err(|e| e.to_string())?.args(&args);
+    
+    let output = command.output().await.map_err(|e| e.to_string())?;
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    if let Some(pos) = stderr.find("Duration: ") {
+        if pos + 18 <= stderr.len() {
+            let duration_str = &stderr[pos + 10..pos + 18];
+            return Ok(duration_str.to_string());
+        }
+    }
+    
+    Ok("00:00:00".to_string())
+}
+
 fn calculate_smart_threads() -> String {
     let mut sys = System::new_all();
     sys.refresh_all(); 
@@ -47,7 +65,7 @@ fn calculate_smart_threads() -> String {
     println!("Diagnóstico: RAM Libre: {}GB | CPU Uso: {}% | Cores: {}", free_ram_gb, global_cpu_usage, logical_cores);
 
     if free_ram_gb < 2 || global_cpu_usage > 60.0 {
-        println!("⚠️ Sistema ocupado. Modo Sigiloso (1 hilo).");
+        println!("Sistema ocupado. Modo Sigiloso (1 hilo).");
         return "1".to_string();
     }
     
@@ -57,7 +75,7 @@ fn calculate_smart_threads() -> String {
         1
     };
 
-    println!("✅ Modo Equilibrado activo ({} hilos de {}).", threads_to_use, logical_cores);
+    println!("Modo Equilibrado activo ({} hilos de {}).", threads_to_use, logical_cores);
     threads_to_use.to_string()
 }
 
@@ -98,7 +116,9 @@ async fn convert_file(
     app: AppHandle, 
     state: State<'_, ConversionState>, 
     input_path: String, 
-    format: String
+    format: String,
+    start_time: Option<String>,
+    end_time: Option<String>
 )-> Result<String, String> {
     
     let smart_threads = calculate_smart_threads();
@@ -126,6 +146,24 @@ async fn convert_file(
         "-i", &input_path,
         "-threads", &smart_threads,
     ];
+
+    if let Some(ref s) = start_time {
+        if !s.is_empty() {
+            args.push("-ss");
+            args.push(s);
+        }
+    }
+
+    if let Some(ref e) = end_time {
+        if !e.is_empty() {
+            args.push("-to");
+            args.push(e);
+        }
+    }
+
+    args.push("-threads");
+    args.push(&smart_threads);
+
     args.extend_from_slice(&extra_args);
     args.push(&output_str);
 
@@ -141,6 +179,14 @@ async fn convert_file(
         match event {
             tauri_plugin_shell::process::CommandEvent::Stderr(line) => {
                 let out = String::from_utf8_lossy(&line);
+                
+                if out.contains("Duration: ") {
+                    if let Some(pos) = out.find("Duration: ") {
+                        let duration_str = &out[pos + 10..pos + 21];
+                        let _ = app.emit("video-total-duration", duration_str);
+                    }
+                }
+
                 if out.contains("time=") {
                     if let Some(pos) = out.find("time=") {
                         let time_str = &out[pos + 5..pos + 13];
@@ -162,6 +208,7 @@ async fn convert_file(
             _ => {}
         }
     }
+    
     Ok("Finalizado".to_string())
 }
 
@@ -172,7 +219,7 @@ fn main() {
         })
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![select_file, convert_file, cancel_conversion])
+        .invoke_handler(tauri::generate_handler![select_file, convert_file, cancel_conversion, get_media_duration])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
