@@ -19,6 +19,11 @@ A diferencia de las aplicaciones web tradicionales o wrappers de Node.js, Open P
 
 ## 🚀 Características Principales
 
+### ✂️ Edición y Flujo (Nuevo v0.4.0)
+* **Procesamiento por Lotes (Batch):** Carga múltiples archivos y procésalos en cola secuencialmente sin saturar el CPU.
+* **Recorte de Precisión:** Edita el punto de inicio y fin de cada video individualmente con selectores de tiempo nativos.
+* **Smart Merge (Unión):** Fusiona múltiples videos en uno solo sin recodificar (Copy Stream), detectando incompatibilidades de formato o resolución automáticamente.
+
 ### 🎥 Video
 * **Modo Instagram Reel:** Conversión automática a 9:16 con relleno inteligente (Blur padding).
 * **Modo WhatsApp:** Compresión agresiva optimizada para mensajería rápida.

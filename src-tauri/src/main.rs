@@ -9,9 +9,19 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::fs;
 use std::path::PathBuf;
+use serde::Serialize;
+use std::io::Write;
 
 struct ConversionState {
     current_process: Arc<Mutex<Option<CommandChild>>>,
+}
+
+#[derive(Serialize)]
+struct VideoMetadata {
+    duration: String,
+    width: u32,
+    height: u32,
+    codec: String,
 }
 
 #[tauri::command]
@@ -37,21 +47,64 @@ async fn select_file(app: tauri::AppHandle, file_type: String) -> Result<Vec<Str
 }
 
 #[tauri::command]
-async fn get_media_duration(app: AppHandle, path: String) -> Result<String, String> {
+async fn get_video_metadata(app: AppHandle, path: String) -> Result<VideoMetadata, String> {
     let args = vec!["-i", &path];
     let command = app.shell().sidecar("ffmpeg").map_err(|e| e.to_string())?.args(&args);
-    
     let output = command.output().await.map_err(|e| e.to_string())?;
     let stderr = String::from_utf8_lossy(&output.stderr);
 
+    let mut duration = "00:00:00".to_string();
+    let mut width = 0;
+    let mut height = 0;
+    let mut codec = "unknown".to_string();
+
+    // Duración
     if let Some(pos) = stderr.find("Duration: ") {
         if pos + 18 <= stderr.len() {
-            let duration_str = &stderr[pos + 10..pos + 18];
-            return Ok(duration_str.to_string());
+            duration = stderr[pos + 10..pos + 18].to_string();
         }
     }
-    
-    Ok("00:00:00".to_string())
+
+    // Resolución y Codec
+    if let Some(stream_pos) = stderr.find("Video: ") {
+        let stream_info = &stderr[stream_pos..];
+        
+        // Codec
+        let parts: Vec<&str> = stream_info.split(',').collect();
+        if let Some(first_part) = parts.get(0) {
+            let codec_parts: Vec<&str> = first_part.split_whitespace().collect();
+            if codec_parts.len() >= 2 {
+                codec = codec_parts[1].to_string(); // "h264"
+            }
+        }
+
+        // Resolución (ej: 1920x1080)
+        for part in parts {
+            let part = part.trim();
+            if let Some(x_pos) = part.find('x') {
+                let (w_str, h_str) = part.split_at(x_pos);
+                let h_str = &h_str[1..];
+                
+                let w_clean: String = w_str.chars().filter(|c| c.is_digit(10)).collect();
+                let h_clean: String = h_str.chars().take_while(|c| c.is_digit(10)).collect();
+
+                if let (Ok(w), Ok(h)) = (w_clean.parse::<u32>(), h_clean.parse::<u32>()) {
+                    if w > 100 && h > 100 {
+                        width = w;
+                        height = h;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(VideoMetadata {
+        duration,
+        width,
+        height,
+        codec,
+    })
 }
 
 fn calculate_smart_threads() -> String {
@@ -96,6 +149,53 @@ fn generate_unique_path(base_path: PathBuf) -> PathBuf {
             return new_path;
         }
         counter += 1;
+    }
+}
+
+#[tauri::command]
+async fn merge_videos(app: AppHandle, input_paths: Vec<String>, output_name: String) -> Result<String, String> {
+    if input_paths.is_empty() {
+        return Err("No hay videos para unir".to_string());
+    }
+
+    let first_path = Path::new(&input_paths[0]);
+    let parent_dir = first_path.parent().unwrap_or(Path::new("."));
+    
+    let list_path = parent_dir.join("ffmpeg_merge_list.txt");
+    let output_path = generate_unique_path(parent_dir.join(format!("{}.mp4", output_name)));
+
+    let mut list_content = String::new();
+    for path in &input_paths {
+        let double_slash_path = path.replace("\\", "\\\\");
+        
+        let safe_path = double_slash_path.replace("'", "'\\''"); 
+        
+        list_content.push_str(&format!("file '{}'\r\n", safe_path));
+    }
+
+    if let Err(e) = std::fs::write(&list_path, &list_content) {
+        return Err(format!("Error creando lista temporal: {}", e));
+    }
+
+    let args = vec![
+        "-f", "concat",
+        "-safe", "0",
+        "-i", list_path.to_str().unwrap(),
+        "-c", "copy",
+        "-y",
+        output_path.to_str().unwrap()
+    ];
+
+    let command = app.shell().sidecar("ffmpeg").map_err(|e| e.to_string())?.args(&args);
+    let output = command.output().await.map_err(|e| e.to_string())?;
+
+    let _ = std::fs::remove_file(list_path);
+
+    if output.status.success() {
+        Ok(format!("Unión exitosa: {}", output_path.display()))
+    } else {
+        let err_msg = String::from_utf8_lossy(&output.stderr);
+        Err(format!("Error en FFmpeg: {}", err_msg))
     }
 }
 
@@ -219,7 +319,7 @@ fn main() {
         })
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![select_file, convert_file, cancel_conversion, get_media_duration])
+        .invoke_handler(tauri::generate_handler![select_file, convert_file, cancel_conversion, get_video_metadata, merge_videos])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
