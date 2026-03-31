@@ -1,16 +1,17 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use sysinfo::System;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, State, Manager};
 use tauri_plugin_shell::{ShellExt, process::CommandChild};
 use tauri_plugin_dialog::DialogExt;
 use tauri::Emitter;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
-use std::fs;
+use tokio::fs;
 use std::path::PathBuf;
 use serde::Serialize;
 use std::io::Write;
+use std::time::UNIX_EPOCH;
 
 struct ConversionState {
     current_process: Arc<Mutex<Option<CommandChild>>>,
@@ -22,6 +23,7 @@ struct VideoMetadata {
     width: u32,
     height: u32,
     codec: String,
+    pub modified: u64
 }
 
 #[tauri::command]
@@ -99,11 +101,21 @@ async fn get_video_metadata(app: AppHandle, path: String) -> Result<VideoMetadat
         }
     }
 
+    let fs_metadata = std::fs::metadata(&path).map_err(|e| e.to_string())?;
+    
+    let modified = fs_metadata
+    .modified()
+    .map_err(|e| e.to_string())?
+    .duration_since(UNIX_EPOCH)
+    .map_err(|e| e.to_string())?
+    .as_secs();
+
     Ok(VideoMetadata {
         duration,
         width,
         height,
         codec,
+        modified,
     })
 }
 
@@ -153,49 +165,74 @@ fn generate_unique_path(base_path: PathBuf) -> PathBuf {
 }
 
 #[tauri::command]
-async fn merge_videos(app: AppHandle, input_paths: Vec<String>, output_name: String) -> Result<String, String> {
+async fn merge_videos(
+    app: AppHandle, 
+    input_paths: Vec<String>, 
+    output_name: String
+) -> Result<String, String> {
     if input_paths.is_empty() {
         return Err("No hay videos para unir".to_string());
     }
 
     let first_path = Path::new(&input_paths[0]);
     let parent_dir = first_path.parent().unwrap_or(Path::new("."));
-    
     let list_path = parent_dir.join("ffmpeg_merge_list.txt");
-    let output_path = generate_unique_path(parent_dir.join(format!("{}.mp4", output_name)));
+    let output_path = parent_dir.join(format!("{}.mp4", output_name));
 
+    // 1. Crear contenido de la lista
     let mut list_content = String::new();
     for path in &input_paths {
-        let double_slash_path = path.replace("\\", "\\\\");
-        
-        let safe_path = double_slash_path.replace("'", "'\\''"); 
-        
+        let safe_path = path.replace("\\", "\\\\").replace("'", "'\\''");
         list_content.push_str(&format!("file '{}'\r\n", safe_path));
     }
 
-    if let Err(e) = std::fs::write(&list_path, &list_content) {
-        return Err(format!("Error creando lista temporal: {}", e));
-    }
+    fs::write(&list_path, &list_content)
+    .await
+    .map_err(|e: std::io::Error| e.to_string())?;
 
+    // 2. Configurar el comando
     let args = vec![
-        "-f", "concat",
-        "-safe", "0",
+        "-f", "concat", "-safe", "0",
         "-i", list_path.to_str().unwrap(),
-        "-c", "copy",
-        "-y",
+        "-c", "copy", "-y",
         output_path.to_str().unwrap()
     ];
 
-    let command = app.shell().sidecar("ffmpeg").map_err(|e| e.to_string())?.args(&args);
-    let output = command.output().await.map_err(|e| e.to_string())?;
+    let sidecar_command = app.shell().sidecar("ffmpeg").map_err(|e| e.to_string())?;
+    let (mut rx, child) = sidecar_command
+        .args(&args)
+        .spawn() // Usamos spawn en lugar de output para tener control total
+        .map_err(|e| e.to_string())?;
 
-    let _ = std::fs::remove_file(list_path);
+    // 3. Manejo del ciclo de vida del proceso
+    let mut success = false;
+    
+    // Escuchamos los eventos del proceso
+    while let Some(event) = rx.recv().await {
+        match event {
+            tauri_plugin_shell::process::CommandEvent::Terminated(payload) => {
+                success = payload.code == Some(0);
+                break;
+            }
+            tauri_plugin_shell::process::CommandEvent::Error(err) => {
+                return Err(format!("Error en el proceso: {}", err));
+            }
+            _ => {} // Otros eventos como stdout/stderr
+        }
+    }
 
-    if output.status.success() {
+    // 4. Limpieza post-proceso
+    let _ = fs::remove_file(&list_path).await;
+
+    if success {
         Ok(format!("Unión exitosa: {}", output_path.display()))
     } else {
-        let err_msg = String::from_utf8_lossy(&output.stderr);
-        Err(format!("Error en FFmpeg: {}", err_msg))
+        if output_path.exists() {
+            // Aquí también especificamos el await y el punto y coma
+            let _ = fs::remove_file(&output_path).await;
+        }
+        let _ = child.kill(); 
+        Err("Proceso interrumpido o fallido.".to_string())
     }
 }
 
@@ -319,7 +356,26 @@ fn main() {
         })
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![select_file, convert_file, cancel_conversion, get_video_metadata, merge_videos])
+        .invoke_handler(tauri::generate_handler![
+            select_file, 
+            convert_file, 
+            cancel_conversion, 
+            get_video_metadata, 
+            merge_videos
+        ])
+        .on_window_event(|window, event| match event {
+            tauri::WindowEvent::CloseRequested { .. } => {
+                let state = window.state::<ConversionState>();
+                let mut process_guard = state.current_process.lock().unwrap();
+                
+                // Si hay un proceso corriendo, lo matamos
+                if let Some(child) = process_guard.take() {
+                    let _ = child.kill();
+                    println!("Ventana cerrada: Proceso FFmpeg finalizado para liberar recursos.");
+                }
+            }
+            _ => {}
+        })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
