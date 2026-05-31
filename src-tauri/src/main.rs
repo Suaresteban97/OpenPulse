@@ -12,6 +12,32 @@ use std::path::PathBuf;
 use serde::Serialize;
 use std::io::Write;
 use std::time::UNIX_EPOCH;
+use std::fs::OpenOptions;
+
+fn write_log(app: &AppHandle, message: &str) {
+    if let Ok(log_dir) = app.path().app_log_dir() {
+        let _ = std::fs::create_dir_all(&log_dir);
+        let log_file = log_dir.join("openpulse.log");
+        if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(log_file) {
+            let timestamp = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs();
+            let _ = writeln!(file, "[{}] {}", timestamp, message);
+        }
+    }
+}
+
+#[tauri::command]
+async fn read_logs(app: AppHandle) -> Result<String, String> {
+    if let Ok(log_dir) = app.path().app_log_dir() {
+        let log_file = log_dir.join("openpulse.log");
+        if log_file.exists() {
+            return std::fs::read_to_string(log_file).map_err(|e| e.to_string());
+        }
+    }
+    Ok("No hay logs disponibles.".to_string())
+}
 
 struct ConversionState {
     current_process: Arc<Mutex<Option<CommandChild>>>,
@@ -50,9 +76,18 @@ async fn select_file(app: tauri::AppHandle, file_type: String) -> Result<Vec<Str
 
 #[tauri::command]
 async fn get_video_metadata(app: AppHandle, path: String) -> Result<VideoMetadata, String> {
+    write_log(&app, &format!("Iniciando get_video_metadata para: {}", path));
     let args = vec!["-i", &path];
-    let command = app.shell().sidecar("ffmpeg").map_err(|e| e.to_string())?.args(&args);
-    let output = command.output().await.map_err(|e| e.to_string())?;
+    let command = app.shell().sidecar("ffmpeg").map_err(|e| {
+        let err_msg = format!("Error al iniciar sidecar ffmpeg en get_video_metadata: {}", e);
+        write_log(&app, &err_msg);
+        err_msg
+    })?.args(&args);
+    let output = command.output().await.map_err(|e| {
+        let err_msg = format!("Error al ejecutar comando ffmpeg en get_video_metadata: {}", e);
+        write_log(&app, &err_msg);
+        err_msg
+    })?;
     let stderr = String::from_utf8_lossy(&output.stderr);
 
     let mut duration = "00:00:00".to_string();
@@ -198,11 +233,20 @@ async fn merge_videos(
         output_path.to_str().unwrap()
     ];
 
-    let sidecar_command = app.shell().sidecar("ffmpeg").map_err(|e| e.to_string())?;
+    write_log(&app, "Iniciando merge_videos");
+    let sidecar_command = app.shell().sidecar("ffmpeg").map_err(|e| {
+        let err_msg = format!("Error al iniciar sidecar ffmpeg en merge_videos: {}", e);
+        write_log(&app, &err_msg);
+        err_msg
+    })?;
     let (mut rx, child) = sidecar_command
         .args(&args)
         .spawn() // Usamos spawn en lugar de output para tener control total
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| {
+            let err_msg = format!("Error en spawn ffmpeg en merge_videos: {}", e);
+            write_log(&app, &err_msg);
+            err_msg
+        })?;
 
     // 3. Manejo del ciclo de vida del proceso
     let mut success = false;
@@ -304,8 +348,17 @@ async fn convert_file(
     args.extend_from_slice(&extra_args);
     args.push(&output_str);
 
-    let command = app.shell().sidecar("ffmpeg").map_err(|e| e.to_string())?.args(&args);
-    let (mut rx, child) = command.spawn().map_err(|e| e.to_string())?;
+    write_log(&app, &format!("Iniciando convert_file para: {} a formato: {}", input_path, format));
+    let command = app.shell().sidecar("ffmpeg").map_err(|e| {
+        let err_msg = format!("Error al iniciar sidecar ffmpeg en convert_file: {}", e);
+        write_log(&app, &err_msg);
+        err_msg
+    })?.args(&args);
+    let (mut rx, child) = command.spawn().map_err(|e| {
+        let err_msg = format!("Error en spawn ffmpeg en convert_file: {}", e);
+        write_log(&app, &err_msg);
+        err_msg
+    })?;
 
     {
         let mut process_guard = state.current_process.lock().unwrap();
@@ -361,7 +414,8 @@ fn main() {
             convert_file, 
             cancel_conversion, 
             get_video_metadata, 
-            merge_videos
+            merge_videos,
+            read_logs
         ])
         .on_window_event(|window, event| match event {
             tauri::WindowEvent::CloseRequested { .. } => {

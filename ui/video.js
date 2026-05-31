@@ -1,12 +1,23 @@
-﻿// ui/video.js
+// ui/video.js
 
 document.addEventListener('DOMContentLoaded', () => {
-    const { invoke } = window.__TAURI__.core;
-    const { listen } = window.__TAURI__.event;
 
     let videoQueue = [];
     let isProcessing = false;
     let currentProcessingId = null; 
+
+    // --- Intro Overlay (primero, antes de cualquier cosa que pueda fallar) ---
+    const introOverlay = document.getElementById('intro-overlay');
+    if (introOverlay) { 
+        setTimeout(() => { 
+            introOverlay.style.opacity = '0'; 
+            setTimeout(() => introOverlay.remove(), 500); 
+        }, 2000); 
+    }
+
+    // --- APIs de Tauri (accedidas de forma segura) ---
+    const invoke = (...args) => window.__TAURI__.core.invoke(...args);
+    const listen = (...args) => window.__TAURI__.event.listen(...args);
 
     // --- 1. FUNCIÓN DE REFRESCO (Para el Sort) ---
     function refreshUIList() {
@@ -16,15 +27,6 @@ document.addEventListener('DOMContentLoaded', () => {
             const li = document.getElementById(`item-${video.id}`);
             if (li) list.appendChild(li); 
         });
-    }
-
-    // --- Intro Overlay ---
-    const introOverlay = document.getElementById('intro-overlay');
-    if (introOverlay) { 
-        setTimeout(() => { 
-            introOverlay.style.opacity = '0'; 
-            setTimeout(() => introOverlay.remove(), 500); 
-        }, 2000); 
     }
 
     // --- Menú de Navegación ---

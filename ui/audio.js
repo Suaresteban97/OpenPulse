@@ -1,6 +1,6 @@
-﻿document.addEventListener('DOMContentLoaded', () => {
-    const { invoke } = window.__TAURI__.core;
-    const { listen } = window.__TAURI__.event;
+document.addEventListener('DOMContentLoaded', () => {
+    const invoke = (...args) => window.__TAURI__.core.invoke(...args);
+    const listen = (...args) => window.__TAURI__.event.listen(...args);
 
     let audioQueue = [];
     let isProcessingAudio = false;

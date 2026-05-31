@@ -61,7 +61,7 @@ Este proyecto no requiere `npm install`. Todo se gestiona a través de Cargo.
 
 ### 2. Clonar el repositorio
 ```bash
-git clone [https://github.com/TU_USUARIO/OpenPulse.git](https://github.com/TU_USUARIO/OpenPulse.git)
+git clone https://github.com/Suaresteban97/OpenPulse.git
 cd OpenPulse
 ```
 

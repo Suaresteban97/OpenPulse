@@ -25,4 +25,39 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
     });
+
+    // Logs Modal Logic
+    const btnViewLogs = document.getElementById('btn-view-logs');
+    const btnCloseLogs = document.getElementById('btn-close-logs');
+    const btnRefreshLogs = document.getElementById('btn-refresh-logs');
+    const logsModal = document.getElementById('logs-modal');
+    const logsContent = document.getElementById('logs-content');
+
+    const loadLogs = async () => {
+        try {
+            const { invoke } = window.__TAURI__.core;
+            const logs = await invoke('read_logs');
+            logsContent.value = logs;
+            logsContent.scrollTop = logsContent.scrollHeight;
+        } catch (e) {
+            logsContent.value = "Error al leer logs: " + e;
+        }
+    };
+
+    if (btnViewLogs) {
+        btnViewLogs.addEventListener('click', () => {
+            logsModal.style.display = 'flex';
+            loadLogs();
+        });
+    }
+
+    if (btnCloseLogs) {
+        btnCloseLogs.addEventListener('click', () => {
+            logsModal.style.display = 'none';
+        });
+    }
+
+    if (btnRefreshLogs) {
+        btnRefreshLogs.addEventListener('click', loadLogs);
+    }
 });
