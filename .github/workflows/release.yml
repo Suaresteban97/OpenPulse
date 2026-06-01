@@ -61,16 +61,6 @@ jobs:
           # Le damos permisos de ejecución
           chmod +x src-tauri/binaries/ffmpeg-universal-apple-darwin
 
-      # Configuración del entorno de Node.js para compilar el frontend
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
-      # Instalación de las dependencias de npm antes de compilar con Tauri
-      - name: Install frontend dependencies
-        run: npm install
-
       - name: Build the app
         uses: tauri-apps/tauri-action@v0
         env:
