@@ -6,7 +6,7 @@ permissions:
 on:
   push:
     tags:
-      - 'v*' # Se activa cuando subes un tag como v0.1.0
+      - 'v*'
 
 jobs:
   build-and-release:
@@ -16,7 +16,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - platform: 'macos-latest' # Apple Silicon & Intel (Universal si se configura)
+          - platform: 'macos-latest' # Apple Silicon & Intel
             args: '--target universal-apple-darwin'
           - platform: 'ubuntu-22.04' # Linux
             args: ''
@@ -61,6 +61,16 @@ jobs:
           # Le damos permisos de ejecución
           chmod +x src-tauri/binaries/ffmpeg-universal-apple-darwin
 
+      # Configuración del entorno de Node.js para compilar el frontend
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # Instalación de las dependencias de npm antes de compilar con Tauri
+      - name: Install frontend dependencies
+        run: npm install
+
       - name: Build the app
         uses: tauri-apps/tauri-action@v0
         env:
@@ -69,6 +79,6 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: 'Open Pulse v__VERSION__'
           releaseBody: 'See the assets to download this version and install.'
-          releaseDraft: true
+          releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
