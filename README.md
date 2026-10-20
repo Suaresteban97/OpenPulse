@@ -57,7 +57,18 @@ Este proyecto no requiere `npm install`. Todo se gestiona a través de Cargo.
 
 ### 1. Prerrequisitos
 * Tener instalado [Rust](https://rustup.rs/).
-* *(Solo Linux)* Dependencias del sistema: `libwebkit2gtk-4.0-dev`, `build-essential`.
+* *(Solo Linux)* Dependencias del sistema (Ubuntu/Debian):
+```bash
+sudo apt-get install -y \
+  libwebkit2gtk-4.1-dev \
+  libsoup-3.0-dev \
+  build-essential \
+  libssl-dev \
+  libgtk-3-dev \
+  libayatana-appindicator3-dev \
+  librsvg2-dev
+```
+> ⚠️ Tauri 2.x requiere `libwebkit2gtk-4.1-dev` (NO la versión 4.0).
 
 ### 2. Clonar el repositorio
 ```bash

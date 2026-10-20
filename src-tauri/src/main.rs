@@ -217,8 +217,10 @@ async fn merge_videos(
     // 1. Crear contenido de la lista
     let mut list_content = String::new();
     for path in &input_paths {
-        let safe_path = path.replace("\\", "\\\\").replace("'", "'\\''");
-        list_content.push_str(&format!("file '{}'\r\n", safe_path));
+        let safe_path = path.replace("\\\\", "\\\\\\\\").replace("'", "'\\''" );
+        // NOTA: Usar \n (LF), no \r\n (CRLF). FFmpeg concat en Linux falla con CRLF
+        // porque interpreta el \r como parte del nombre del archivo.
+        list_content.push_str(&format!("file '{}'\n", safe_path));
     }
 
     fs::write(&list_path, &list_content)

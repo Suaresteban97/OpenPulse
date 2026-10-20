@@ -10,17 +10,15 @@ on:
 
 jobs:
   build-and-release:
-    env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     strategy:
       fail-fast: false
       matrix:
         include:
-          - platform: 'macos-latest' # Apple Silicon & Intel
+          - platform: 'macos-latest'
             args: '--target universal-apple-darwin'
-          - platform: 'ubuntu-22.04' # Linux
+          - platform: 'ubuntu-22.04'
             args: ''
-          - platform: 'windows-2022' # Windows
+          - platform: 'windows-2022'
             args: ''
 
     runs-on: ${{ matrix.platform }}
@@ -56,9 +54,7 @@ jobs:
       - name: Combine FFmpeg binaries (macOS only)
         if: matrix.platform == 'macos-latest'
         run: |
-          # Fusionamos el binario de Intel y el de ARM para crear el Universal
           lipo -create src-tauri/binaries/ffmpeg-x86_64-apple-darwin src-tauri/binaries/ffmpeg-aarch64-apple-darwin -output src-tauri/binaries/ffmpeg-universal-apple-darwin
-          # Le damos permisos de ejecución
           chmod +x src-tauri/binaries/ffmpeg-universal-apple-darwin
 
       - name: Build the app

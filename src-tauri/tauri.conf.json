@@ -19,11 +19,7 @@
         "resizable": true,
         "fullscreen": false,
         "theme": "Dark",
-        "decorations": true,
-        "windowEffects": {
-          "effects": [ "mica", "blur" ],
-          "state": "active"
-        }
+        "decorations": true
       }
     ],
     "security": {
